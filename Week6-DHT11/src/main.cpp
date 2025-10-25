@@ -9,7 +9,7 @@
 #define DHTPIN 14         // DHT data pin
 #define DHTTYPE DHT11     // Change to DHT22 if using that model
 #define SDA_PIN 21        // OLED SDA
-#define SCL_PIN 22        // OLED SCL
+#define SCL_PIN 22        
 
 // --- OLED Display Setup ---
 #define SCREEN_WIDTH 128
