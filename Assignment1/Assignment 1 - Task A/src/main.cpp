@@ -1,7 +1,7 @@
 // Name : Aleeha Aiman
 //Reg No: 23-NTU-CS-1243
 //Class: Bs Cs 5th (A)
-//Title : Use one button to cycle through LED modes (display the current state on the OLED): 
+//Title : Use one button to cycle through LED modes (display the current state on OLED): 
 //1. Both OFF 
 //2. Alternate blink 
 //3. Both ON 
