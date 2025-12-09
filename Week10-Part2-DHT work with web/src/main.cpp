@@ -1,177 +1,145 @@
+/******************
+ * ESP32 + DHT22 + SSD1306 OLED + Button + Blynk
+ * Pins (from Wokwi diagram):
+ *   DHT22 data -> GPIO23
+ *   OLED SDA   -> GPIO21
+ *   OLED SCL   -> GPIO22
+ *   Button     -> GPIO5 (active LOW, uses INPUT_PULLUP)
+ ******************/
+
+#define BLYNK_TEMPLATE_ID "TMPL63nmUa_HE"
+#define BLYNK_TEMPLATE_NAME "dhot by aleeha 1243"
+#define BLYNK_AUTH_TOKEN "lpZykRBQOw4fPm42YTRGdrcAAJ49jItr"
+
+#define BLYNK_PRINT Serial
+
+#include <Arduino.h>
 #include <WiFi.h>
-#include <WebServer.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+
 #include "DHT.h"
 
-#define SCREEN_WIDTH 128
+// ------------ WiFi credentials (for wokwi) ------------
+char ssid[] = "NTU FSD";
+char pass[] = "";
+
+// ------------ Pins (match your Wokwi diagram) ------------
+#define DHTPIN   23
+#define DHTTYPE  DHT11
+
+#define BUTTON_PIN 5   // pushbutton, one side to GPIO5, other to GND
+
+// ------------ OLED settings ------------
+#define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
+#define OLED_RESET    -1  // no reset pin
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
-// Pins
-#define DHTPIN 23
-#define DHTTYPE DHT22
-#define BUTTON_PIN 5   // Button to GND, use INPUT_PULLUP
-
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 DHT dht(DHTPIN, DHTTYPE);
 
-// WiFi credentials
-const char* ssid     = "TECNO SPARK 6";
-const char* password = "ALAN2121";
+BlynkTimer timer;
 
-WebServer server(80);
+// For simple button edge detection
+int lastButtonState = HIGH;
 
-// Last measured values
-float lastTemp = NAN;
-float lastHum  = NAN;
+// Forward declaration
+void readAndDisplayAndSend();
 
-bool lastButtonState = HIGH;N
-
-// --- Helper: read DHT and update globals ---
-void readDHTValues() {
-  float h = dht.readHumidity();
-  float t = dht.readTemperature(); // Celsius
-
-  if (!isnan(h) && !isnan(t)) {
-    lastHum  = h;
-    lastTemp = t;
-    Serial.print("Temp: ");
-    Serial.print(t);
-    Serial.print(" *C, Humidity: ");
-    Serial.print(h);
-    Serial.println(" %");
-  } else {
-    Serial.println("Failed to read from DHT!");
-  }
-}
-
-// --- Helper: show values on OLED ---
-void showOnOLED() {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-
-  if (isnan(lastTemp) || isnan(lastHum)) {
-    display.setCursor(0, 0);
-    display.println("DHT Error!");
-  } else {
-    display.setCursor(0, 0);
-    display.println("DHT22 Readings");
-
-    display.setCursor(0, 20);
-    display.print("Temp: ");
-    display.print(lastTemp, 1);
-    display.println(" C");
-
-    display.setCursor(0, 40);
-    display.print("Hum:  ");
-    display.print(lastHum, 1);
-    display.println(" %");
-  }
-
-  display.display();
-}
-
-// --- Web handler ---
-void handleRoot() {
-  // Option A: use last measured values
-  // Option B: take fresh reading here, uncomment if you want:
-  // readDHTValues();
-
-  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>";
-  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<meta http-equiv='refresh' content='5'>";
-  html += "<title>ESP32 DHT Monitor</title></head><body>";
-  html += "<h2>ESP32 DHT22 Readings</h2>";
-
-  if (isnan(lastTemp) || isnan(lastHum)) {
-    html += "<p><b>No valid data yet.</b><br>Press the button to take a reading.</p>";
-  } else {
-    html += "<p><b>Temperature:</b> ";
-    html += String(lastTemp, 1);
-    html += " &deg;C</p>";
-
-    html += "<p><b>Humidity:</b> ";
-    html += String(lastHum, 1);
-    html += " %</p>";
-  }
-
-  html += "<hr><p>Press the physical button to update readings on OLED and here.</p>";
-  html += "</body></html>";
-
-  server.send(200, "text/html", html);
+// Optional: send periodically to Blynk (even without button)
+void periodicSend() {
+  readAndDisplayAndSend();
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
+  Serial.println();
+  Serial.println("ESP32 DHT22 + OLED + Blynk starting...");
 
+  // Button input with internal pull-up
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  // OLED init
+  // I2C + OLED
+  Wire.begin(21, 22);  // SDA, SCL (as per diagram)
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("OLED not found!");
-    while (1);
+    Serial.println("SSD1306 allocation failed");
+    for (;;); // halt if OLED not found
   }
-
   display.clearDisplay();
   display.setTextSize(1);
-  display.setTextColor(WHITE);
+  display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
   display.println("Booting...");
   display.display();
 
+  // DHT sensor
   dht.begin();
 
-  // WiFi connect
-  WiFi.begin(ssid, password);
-  display.setCursor(0, 16);
-  display.println("WiFi Connecting...");
-  display.display();
+  // Blynk (for real hardware WiFi)
+  Serial.println("Connecting to Blynk...");
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  // For Wokwi, WiFi is simulated via wokwi.toml [net] config
 
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  // Periodic send every 5 seconds (optional)
+  timer.setInterval(5000L, periodicSend);
+}
+
+// Reads DHT22, updates OLED and sends to Blynk
+void readAndDisplayAndSend() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature(); // Celsius
+
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!");
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("DHT Error!");
+    display.display();
+    return;
   }
-  Serial.println("\nWiFi connected!");
-  Serial.print("IP: ");
-  Serial.println(WiFi.localIP());
 
+  Serial.print("Temp: ");
+  Serial.print(t);
+  Serial.print(" *C, Hum: ");
+  Serial.print(h);
+  Serial.println(" %");
+
+  // --- Update OLED ---
   display.clearDisplay();
   display.setCursor(0, 0);
-  display.println("WiFi Connected");
-  display.setCursor(0, 16);
-  display.print("IP: ");
-  display.println(WiFi.localIP());
-  display.setCursor(0, 32);
-  display.println("Press button");
-  display.setCursor(0, 44);
-  display.println("to read DHT");
+  display.println("Environment Node");
+  display.println("-----------------");
+  display.print("Temp: ");
+  display.print(t, 1);
+  display.println(" C");
+  display.print("Hum : ");
+  display.print(h, 1);
+  display.println(" %");
+  display.println();
+  display.println("BTN -> manual update");
   display.display();
 
-  // Web server
-  server.on("/", handleRoot);
-  server.begin();
+  // --- Send to Blynk (Virtual Pins) ---
+  // Map: V0 = Temp, V1 = Humidity
+  Blynk.virtualWrite(V0, t);
+  Blynk.virtualWrite(V1, h);
 }
 
 void loop() {
-  server.handleClient();
+  Blynk.run();
+  timer.run();
 
-  bool currentButtonState = digitalRead(BUTTON_PIN);
-
-  // Detect falling edge (HIGH -> LOW)
-  if (lastButtonState == HIGH && currentButtonState == LOW) {
-    // Small debounce delay
-    delay(50);
-    if (digitalRead(BUTTON_PIN) == LOW) {
-      Serial.println("Button pressed: reading DHT + updating OLED");
-      readDHTValues();
-      showOnOLED();
-    }
+  // Simple button edge detection (active LOW)
+  int currentState = digitalRead(BUTTON_PIN);
+  if (lastButtonState == HIGH && currentState == LOW) {
+    // Falling edge -> button pressed
+    Serial.println("Button pressed: manual DHT read");
+    readAndDisplayAndSend();
   }
-
-  lastButtonState = currentButtonState;
+  lastButtonState = currentState;
 }
